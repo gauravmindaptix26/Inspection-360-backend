@@ -1,0 +1,38 @@
+# Python cache
+__pycache__/
+inspection/__pycache__/
+**__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+*.env
+*.venv
+*.pyenv
+.python-version
+
+# Django stuff
+*.log
+*.pot
+*.pyc
+db.sqlite3
+media/
+staticfiles/
+
+# IDE/editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Migrations (optional: only if you don't want to commit them yet)
+# */migrations/*.py
+# !*/migrations/__init__.py
+venv/
