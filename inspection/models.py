@@ -44,7 +44,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=255)
     user_type = models.PositiveSmallIntegerField(choices=USER_TYPE_CHOICES)
 
-    is_active = models.BooleanField(default=False)
+    is_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
   
     createdAt = models.DateTimeField(auto_now_add=True)
     
