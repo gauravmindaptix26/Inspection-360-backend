@@ -6,6 +6,9 @@ from .serializers import RegisterSerializer,ProjectSerializer,UserSerializer,Use
 from .models import User,Project,UserTaskList
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated,AllowAny
+from django.conf import settings
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 
 def get_tokens_for_user(user):
@@ -231,6 +234,64 @@ class UploadTaskImage(APIView):
             "message": "Created successfully!",
             "taskId": userTaskObj.id
         }, status=status.HTTP_200_OK)
+
+        
+
+class CreateS3UploadUrl(APIView):
+    permission_classes = [IsAuthenticated,]
+
+    def post(self, request):
+        file_name = request.data.get("fileName")
+        content_type = request.data.get("contentType") or "application/octet-stream"
+
+        if not file_name:
+            return Response({"error": "fileName is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+            return Response({"error": "AWS credentials are not configured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not settings.AWS_STORAGE_BUCKET_NAME:
+            return Response({"error": "AWS bucket is not configured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        object_key = file_name.replace("\\", "/").split("/")[-1]
+
+        s3 = boto3.client(
+            "s3",
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+        )
+
+        try:
+            upload_url = s3.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
+                    "Key": object_key,
+                    "ContentType": content_type,
+                },
+                ExpiresIn=300,
+            )
+        except (BotoCoreError, ClientError) as error:
+            return Response({"error": str(error)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        endpoint_url = settings.AWS_S3_ENDPOINT_URL.rstrip("/")
+        if endpoint_url:
+            file_url = f"{endpoint_url}/{object_key}"
+        else:
+            file_url = (
+                f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3."
+                f"{settings.AWS_S3_REGION_NAME}.amazonaws.com/{object_key}"
+            )
+
+        return Response(
+            {
+                "uploadUrl": upload_url,
+                "fileUrl": file_url,
+                "key": object_key,
+            },
+            status=status.HTTP_200_OK,
+        )
 
         
     

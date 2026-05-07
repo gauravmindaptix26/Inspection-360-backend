@@ -12,6 +12,7 @@ urlpatterns = [
     path("activateUser/", ActivateUser.as_view(), name="activateUser"),
     path("assignProjectToAdmin/", AssignProjectToAdmin.as_view(), name="assignProjectToAdmin"),
     path("adminProjectfilter/", AdminProjectfilter.as_view(), name="adminProjectfilter"),
+    path("createS3UploadUrl/", CreateS3UploadUrl.as_view(), name="createS3UploadUrl"),
     path("uploadTaskImage/", UploadTaskImage.as_view(), name="uploadTaskImage"),
     path("getTaskDetails/", GetTaskDetails.as_view(), name="getTaskDetails"),
     path("getHomeTask/", GetHomeTask.as_view(), name="getHomeTask"),
