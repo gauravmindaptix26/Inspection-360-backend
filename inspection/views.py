@@ -19,6 +19,52 @@ def get_tokens_for_user(user):
     }
 
 
+def normalize_project_ids(project_ids):
+    if not project_ids:
+        return []
+
+    if not isinstance(project_ids, list):
+        project_ids = [project_ids]
+
+    normalized_ids = []
+    for project_id in project_ids:
+        try:
+            normalized_ids.append(int(project_id))
+        except (TypeError, ValueError):
+            continue
+
+    return normalized_ids
+
+
+def assigned_project_queryset(user):
+    project_ids = normalize_project_ids(getattr(user, "projectId", None))
+    if not project_ids:
+        return Project.objects.none()
+
+    return Project.objects.filter(id__in=project_ids, isDeleted=False)
+
+
+def can_view_user_data(request_user, user_id):
+    requested_user_ids = normalize_project_ids(user_id)
+    return request_user.user_type == 1 or (
+        requested_user_ids and requested_user_ids[0] == request_user.id
+    )
+
+
+def can_access_task(request_user, task):
+    if request_user.user_type == 1:
+        return True
+
+    if not task or not task.project_id:
+        return False
+
+    return task.project_id in normalize_project_ids(request_user.projectId)
+
+
+def require_super_admin(user):
+    return user.user_type == 1
+
+
 
 class RegisterUser(APIView):
     permission_classes = [AllowAny,] 
@@ -62,6 +108,9 @@ class LoginUser(APIView):
 class ProjectList(APIView):
     permission_classes = [IsAuthenticated,]
     def get(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can view all projects"}, status=status.HTTP_403_FORBIDDEN)
+
         project_queryset = Project.objects.filter(isDeleted = False)
         
         if project_queryset.exists():  # Check if any projects exist
@@ -78,6 +127,9 @@ class AddProject(APIView):
     permission_classes = [IsAuthenticated,]
     
     def get(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can view all projects"}, status=status.HTTP_403_FORBIDDEN)
+
         project_queryset = Project.objects.filter(isDeleted = False)
         
         if project_queryset.exists():  # Check if any projects exist
@@ -91,6 +143,9 @@ class AddProject(APIView):
 
         
     def post(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can add projects"}, status=status.HTTP_403_FORBIDDEN)
+
         projectName = request.data.get("projectName")
         project = Project.objects.create(name = projectName)
         
@@ -101,6 +156,9 @@ class AddProject(APIView):
         
         
     def put(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can delete projects"}, status=status.HTTP_403_FORBIDDEN)
+
         projectId = request.data.get("projectId")
         project = Project.objects.filter(id = projectId).update(isDeleted = True)
         
@@ -131,6 +189,9 @@ class AddProject(APIView):
 class UserApprovalList(APIView):
     permission_classes = [IsAuthenticated,]
     def get(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can view users"}, status=status.HTTP_403_FORBIDDEN)
+
         user_queryset = User.objects.filter(user_type__in = [2,3]).order_by('-createdAt')
         
         if user_queryset.exists():  # Check if any projects exist
@@ -147,6 +208,9 @@ class UserApprovalList(APIView):
 class ActivateUser(APIView):
     permission_classes = [IsAuthenticated,]
     def put(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can update users"}, status=status.HTTP_403_FORBIDDEN)
+
         userId = request.data.get("userId")
         action = request.data.get("action")
         
@@ -162,8 +226,11 @@ class ActivateUser(APIView):
 class AssignProjectToAdmin(APIView):
     permission_classes = [IsAuthenticated,]
     def put(self, request):
+        if not require_super_admin(request.user):
+            return Response({"message": "Only super admin can assign projects"}, status=status.HTTP_403_FORBIDDEN)
+
         userId = request.data.get("userId")
-        projectId = request.data.get("projectId")
+        projectId = normalize_project_ids(request.data.get("projectId"))
         
         User.objects.filter(id = userId).update(projectId = projectId)
         
@@ -182,18 +249,18 @@ class AdminProjectfilter(APIView):
         userId = request.GET.get("userId")
 
         if userId:
+            if not can_view_user_data(request.user, userId):
+                return Response({"message": "You can only view your assigned projects"}, status=status.HTTP_403_FORBIDDEN)
+
             userObj = User.objects.filter(id=userId).first()
             if not userObj:
                 return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
             
-            projectIds = userObj.projectId
-            
-            if not projectIds:  # handles None, empty list, or empty string
-                projects = Project.objects.none()  # return empty queryset
-            else:
-                projects = Project.objects.filter(id__in=projectIds,isDeleted = False)
-        else:
+            projects = assigned_project_queryset(userObj)
+        elif request.user.user_type == 1:
             projects = Project.objects.filter(isDeleted = False)
+        else:
+            projects = assigned_project_queryset(request.user)
 
         # Prepare filter list
         result = [{proj.id: proj.name} for proj in projects]
@@ -214,6 +281,9 @@ class UploadTaskImage(APIView):
         uploadedImage = request.data.get("uploadedImage")
         templateImage = request.data.get("templateImage")
 
+        if not can_view_user_data(request.user, userId):
+            return Response({"error": "You can only upload as the logged-in user"}, status=status.HTTP_403_FORBIDDEN)
+
         userObj = User.objects.filter(id=userId).first()
         if not userObj:
             return Response({"error": "Invalid userId"}, status=status.HTTP_400_BAD_REQUEST)
@@ -221,6 +291,9 @@ class UploadTaskImage(APIView):
         projectObj = Project.objects.filter(id=projectId).first() if projectId else None
         if not projectObj:
             return Response({"error": "Invalid projectId"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if userObj.user_type != 1 and projectObj.id not in normalize_project_ids(userObj.projectId):
+            return Response({"error": "Project is not assigned to this user"}, status=status.HTTP_403_FORBIDDEN)
 
         userTaskObj = UserTaskList.objects.create(
             uploadedImage=uploadedImage,
@@ -306,6 +379,12 @@ class GetTaskDetails(APIView):
             id = taskId
         ).first()
 
+        if not userTaskObj:
+            return Response({"message": "Task not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not can_access_task(request.user, userTaskObj):
+            return Response({"message": "You can only view assigned project tasks"}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = UserTaskListSerializer(userTaskObj)
 
         return Response({
@@ -325,27 +404,26 @@ class GetHomeTask(APIView):
             project = Project.objects.filter(id=projectId).first()
             if not project:
                 return Response({"message": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            if request.user.user_type != 1 and project.id not in normalize_project_ids(request.user.projectId):
+                return Response({"message": "Project is not assigned to this user"}, status=status.HTTP_403_FORBIDDEN)
 
             userTasks = UserTaskList.objects.filter(project=project)
             serializer = UserTaskListSerializer(userTasks, many=True)
             return Response({"message": "Data fetched successfully!", "data": serializer.data})
 
         if userId:
+            if not can_view_user_data(request.user, userId):
+                return Response({"message": "You can only view your own home data"}, status=status.HTTP_403_FORBIDDEN)
+
             user = User.objects.filter(id=userId).first()
             if not user:
                 return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            if user.user_type == 2:  # assigned projects
-                projects = Project.objects.filter(id__in=user.projectId,isDeleted = False)
-                print(projects,"projects")
+            if user.user_type in [2, 3]:  # assigned projects
+                projects = assigned_project_queryset(user)
                 userTasks = UserTaskList.objects.filter(project__in=projects)
-                print(userTasks,"userTasks")
-                
-            elif user.user_type == 3:
-                userTasks = UserTaskList.objects.filter(uploadedUser=user)
             else:  # user_type == 1, all projects
-                print("kjjjjjjjjjjjjjjjj")
-                # projects = Project.objects.filter(isDeleted = False)
                 userTasks = UserTaskList.objects.all()
 
             serializer = UserTaskListSerializer(userTasks, many=True)
@@ -371,13 +449,15 @@ class GetUserHomeTask(APIView):
             return Response({"message": "Data fetched successfully!", "data": serializer.data})
 
         if userId:
+            if not can_view_user_data(request.user, userId):
+                return Response({"message": "You can only view your own home data"}, status=status.HTTP_403_FORBIDDEN)
+
             user = User.objects.filter(id=userId).first()
-            print(user.user_type,"user.user_type")
             if not user:
                 return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            if user.user_type == 2:  # assigned projects
-                projects = Project.objects.filter(id__in=user.projectId,isDeleted = False)
+            if user.user_type in [2, 3]:  # assigned projects
+                projects = assigned_project_queryset(user)
                 userTasks = UserTaskList.objects.filter(project__in=projects)
             else:  # user_type == 1, all projects
                 # projects = Project.objects.filter(isDeleted = False)
@@ -404,6 +484,9 @@ class AddTag(APIView):
         if not userTaskObj:
             return Response({"error": "Invalid taskId"}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not can_access_task(request.user, userTaskObj):
+            return Response({"error": "You can only update assigned project tasks"}, status=status.HTTP_403_FORBIDDEN)
+
         # Ensure markTag is a list
         if userTaskObj.markTag is None:
             userTaskObj.markTag = []
@@ -424,9 +507,11 @@ class AddTag(APIView):
  
 
         userTaskObj = UserTaskList.objects.filter(id=taskId).first()
-        print(userTaskObj)
         if not userTaskObj:
             return Response({"error": "Invalid taskId"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not can_access_task(request.user, userTaskObj):
+            return Response({"error": "You can only view assigned project tasks"}, status=status.HTTP_403_FORBIDDEN)
 
 
 
@@ -450,12 +535,16 @@ class DeleteTask(APIView):
                 "error": "taskId is required."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        deleted_count, _ = UserTaskList.objects.filter(id=task_id).delete()
-
-        if deleted_count == 0:
+        userTaskObj = UserTaskList.objects.filter(id=task_id).first()
+        if not userTaskObj:
             return Response({
                 "error": "Task not found."
             }, status=status.HTTP_404_NOT_FOUND)
+
+        if not can_access_task(request.user, userTaskObj):
+            return Response({"error": "You can only delete assigned project tasks"}, status=status.HTTP_403_FORBIDDEN)
+
+        userTaskObj.delete()
 
         return Response({
             "message": "Deleted successfully!"
@@ -474,6 +563,9 @@ class DeleteTag(APIView):
         userTaskObj = UserTaskList.objects.filter(id=taskId).first()
         if not userTaskObj:
             return Response({"error": "Invalid taskId"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not can_access_task(request.user, userTaskObj):
+            return Response({"error": "You can only update assigned project tasks"}, status=status.HTTP_403_FORBIDDEN)
 
         if not userTaskObj.markTag:
             return Response({"error": "No tags found"}, status=status.HTTP_404_NOT_FOUND)

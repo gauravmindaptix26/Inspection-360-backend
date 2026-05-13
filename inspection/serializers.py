@@ -26,7 +26,16 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = '__all__'
+        fields = [
+            "id",
+            "email",
+            "mobile_no",
+            "full_name",
+            "user_type",
+            "is_active",
+            "createdAt",
+            "projectId",
+        ]
         
         
 class UserTaskListSerializer(serializers.ModelSerializer):
