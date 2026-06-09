@@ -6,6 +6,7 @@ USER_TYPE_CHOICES = (
     (1, "SuperAdmin"),
     (2, "Admin"),
     (3, "User"),
+    (4, "Viewer"),
 )
 
 class CustomUserManager(BaseUserManager):
@@ -66,11 +67,43 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 class Project(models.Model):
     name = models.CharField(max_length=500, null=True)
+    parentProject = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="subProjects",
+    )
     isDeleted = models.BooleanField(null=True,default=False)
     createdAt = models.DateTimeField(default=now, editable=False, null=True)
     
     class Meta:
         db_table = 'project'
+
+
+class Employee(models.Model):
+    name = models.CharField(max_length=255)
+    image = models.TextField(null=True, blank=True)
+    department = models.CharField(max_length=255, null=True, blank=True)
+    dob = models.DateField(null=True, blank=True)
+    projects = models.TextField(null=True, blank=True)
+    designation = models.CharField(max_length=255, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
+    mobile_no = models.CharField(max_length=20, null=True, blank=True)
+    address = models.TextField(null=True, blank=True)
+    salary = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    leave_balance = models.PositiveIntegerField(default=0)
+    joining_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'employee'
+        ordering = ['-createdAt']
+
+    def __str__(self):
+        return self.name
         
         
 class UserTaskList(models.Model):

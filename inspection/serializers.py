@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User,Project,UserTaskList
+from .models import Employee, User, Project, UserTaskList
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -15,10 +15,15 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class ProjectSerializer(serializers.ModelSerializer):
-    
+    subProjects = serializers.SerializerMethodField()
+
     class Meta:
         model = Project
-        fields = '__all__'
+        fields = ["id", "name", "parentProject", "subProjects", "isDeleted", "createdAt"]
+
+    def get_subProjects(self, obj):
+        sub_projects = obj.subProjects.filter(isDeleted=False)
+        return ProjectSerializer(sub_projects, many=True).data
         
         
         
@@ -36,6 +41,13 @@ class UserSerializer(serializers.ModelSerializer):
             "createdAt",
             "projectId",
         ]
+
+
+class EmployeeSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Employee
+        fields = '__all__'
         
         
 class UserTaskListSerializer(serializers.ModelSerializer):
